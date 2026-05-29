@@ -1,0 +1,194 @@
+---
+# Deterministic tag correction rules
+# Applied before fuzzy matching (Phase 1 of tag processing)
+# Rules are processed in order
+
+rules:
+  artist:
+    # Standardize common artist variations
+    - name: "Standardize The Beatles"
+      enabled: true
+      condition:
+        field: "artist"
+        pattern: "^(beatles|the beatles)$"
+        case_insensitive: true
+      value: "The Beatles"
+      confidence: 1.0
+      
+    - name: "Standardize Led Zeppelin"
+      enabled: true
+      condition:
+        field: "artist"
+        pattern: "^(led zeppelin|led zep)$"
+        case_insensitive: true
+      value: "Led Zeppelin"
+      confidence: 1.0
+      
+    - name: "Clean Pink Floyd hyphen"
+      enabled: true
+      condition:
+        field: "artist"
+        pattern: "^pink-floyd$"
+        case_insensitive: true
+      value: "Pink Floyd"
+      confidence: 1.0
+    
+    # Extract primary artist from "feat." format
+    - name: "Extract primary artist from featuring"
+      enabled: true
+      condition:
+        field: "artist"
+        pattern: "(.+?)\\s+(?:feat\\.?|featuring|ft\\.?).*"
+        case_insensitive: true
+        extract_group: 1
+      action: "extract_base"
+      confidence: 0.9
+      
+    # Handle ampersands
+    - name: "Normalize ampersand"
+      enabled: true
+      condition:
+        field: "artist"
+        pattern: "\\s*&\\s*"
+      value: " & "
+      action: "replace"
+      confidence: 1.0
+
+  album_artist:
+    - name: "Inherit from artist if empty"
+      enabled: true
+      condition:
+        field: "album_artist"
+        pattern: "^$"
+      source_field: "artist"
+      action: "copy_if_empty"
+      confidence: 0.8
+
+  genre:
+    # Standardize common genre names
+    - name: "Map alternative to alt-rock"
+      enabled: true
+      condition:
+        field: "genre"
+        pattern: "^alternative$"
+        case_insensitive: true
+      value: "Alt-Rock"
+      confidence: 0.95
+      
+    - name: "Normalize electronic/edm"
+      enabled: true
+      condition:
+        field: "genre"
+        pattern: "^(electronic|edm|electro|synth)$"
+        case_insensitive: true
+      value: "Electronic"
+      confidence: 0.9
+      
+    - name: "Combine hip-hop variants"
+      enabled: true
+      condition:
+        field: "genre"
+        pattern: "^(hip hop|hip-hop|hiphop|rap)$"
+        case_insensitive: true
+      value: "Hip-Hop"
+      confidence: 0.95
+      
+    - name: "Rock genre normalization"
+      enabled: true
+      condition:
+        field: "genre"
+        pattern: "^(rock|hard rock|classic rock)$"
+        case_insensitive: true
+      value: "Rock"
+      confidence: 0.85
+      
+    - name: "Classical spelling"
+      enabled: true
+      condition:
+        field: "genre"
+        pattern: "^(classical|classic)$"
+        case_insensitive: true
+      value: "Classical"
+      confidence: 1.0
+      
+    - name: "Remove empty/unknown genres"
+      enabled: true
+      condition:
+        field: "genre"
+        pattern: "^(unknown|n/a|other|various|\\?|)$"
+        case_insensitive: true
+      value: ""
+      action: "clear"
+      confidence: 0.9
+
+  composer:
+    - name: "Extract composer from featuring"
+      enabled: true
+      condition:
+        field: "composer"
+        pattern: "(.+?)\\s+(?:feat\\.?|featuring|ft\\.?).*"
+        case_insensitive: true
+        extract_group: 1
+      action: "extract_base"
+      confidence: 0.8
+
+  album:
+    - name: "Remove album remaster indicators"
+      enabled: true
+      condition:
+        field: "album"
+        pattern: "\\s*[-–—]?\\s*(?:remaster|remastered|deluxe|deluxe edition|special edition|anniversary).*$"
+        case_insensitive: true
+      action: "strip_suffix"
+      confidence: 0.7
+
+# Conditional rules - applied based on context
+conditional_rules:
+  - name: "Compilation album artist standardization"
+    enabled: true
+    condition:
+      # If album_artist is "Various Artists" or "Unknown"
+      field: "album_artist"
+      pattern: "^(various|various artists|unknown|multiple)$"
+      case_insensitive: true
+    then:
+      # Set to known compilation marker
+      value: "Various Artists"
+      confidence: 1.0
+
+# Rules for handling multi-value fields
+multi_value_rules:
+  - name: "Split artist collaborations"
+    enabled: false  # Disabled by default, requires special handling
+    field: "artist"
+    action: "split_on_separator"
+    separators: [",", ";", " and ", " & "]
+
+# Whitelist/Blacklist rules
+whitelist:
+  # These artist names are never corrected
+  protected_artists:
+    - "The Beatles"
+    - "Rolling Stones"
+    - "Queen"
+
+blacklist:
+  # These values indicate invalid/placeholder data
+  invalid_values:
+    - "Unknown"
+    - "N/A"
+    - "None"
+    - "[Unknown]"
+    - "?"
+  
+  invalid_genres:
+    - "Other"
+    - "Various"
+    - "Miscellaneous"
+
+# Rule metadata
+metadata:
+  version: "1.0"
+  last_updated: "2026-05-29"
+  description: "Deterministic tag correction rules for music metadata standardization"
+  author: "qnap-music-tagger"
