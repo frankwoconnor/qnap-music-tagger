@@ -46,7 +46,7 @@ def run_library_profiling(music_dir):
     metadata = [m for m in raw_metadata if m is not None]
     
     # Step 1: Lexical Frequency Dominance Clustering
-    unique_artists = sorted(list(set(m["artist"]) for m in metadata if m["artist"]))) # Corrected line
+    unique_artists = sorted(list(set(m["artist"] for m in metadata if m["artist"])))
     artist_counts = Counter(m["artist"] for m in metadata if m["artist"])
     
     fuzzy_clusters = {}
