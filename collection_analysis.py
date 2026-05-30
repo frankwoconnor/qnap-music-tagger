@@ -87,16 +87,23 @@ def analyze_and_suggest_tag_rules(
         "folder_album_suggestion": folder_album_suggestion,
     }
 
-def export_suggested_rules_to_csv(clusters: dict, file_path: str = "suggested_rules.csv"):
+def export_suggested_rules_to_csv(clusters: dict, file_path: Optional[str] = "suggested_rules.csv", return_as_string: bool = False):
     """Export rule/fuzzy clusters to a spreadsheet for easy human editing"""
-    with open(file_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Standard Value"] + [f"Alias {i}" for i in range(1, 16)])
-        for field, field_clusters in clusters.items():
-            for master, variants in field_clusters.items():
-                row = [master] + variants
-                writer.writerow(row)
-    print(f"Wrote suggested rules to {file_path}")
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Standard Value"] + [f"Alias {i}" for i in range(1, 16)])
+    for field, field_clusters in clusters.items():
+        for master, variants in field_clusters.items():
+            row = [master] + variants
+            writer.writerow(row)
+    
+    if return_as_string:
+        return output.getvalue()
+    else:
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            f.write(output.getvalue())
+        print(f"Wrote suggested rules to {file_path}")
 
 def load_rules_from_csv(
     file_path: str,

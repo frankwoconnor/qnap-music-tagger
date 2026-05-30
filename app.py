@@ -7,6 +7,7 @@ from rapidfuzz import fuzz, process
 
 # Import picklable parallel worker functions from isolated module context
 from workers import scan_single_file, apply_tag_fix
+from collection_analysis import analyze_and_suggest_tag_rules, export_suggested_rules_to_csv, load_rules_from_csv, rules_to_yaml
 
 # --- PROFILING ENGINE LOGIC ---
 
@@ -148,6 +149,7 @@ if "db" not in st.session_state:
     st.session_state.db = None
     st.session_state.clusters = {}
     st.session_state.anomalies = []
+    st.session_state.suggested_rules = None
 
 target_directory = st.text_input("QNAP Media Directory Path Target", "/music")
 
@@ -161,7 +163,7 @@ if st.button("Analyze Library & Extract Patterns", type="primary"):
 
 # Render operational work panels once library state matrices are compiled
 if st.session_state.db:
-    tab1, tab2 = st.tabs(["Fuzzy Spelling Consolidation", "Folder Consensus Anomalies"])
+    tab1, tab2, tab3 = st.tabs(["Fuzzy Spelling Consolidation", "Folder Consensus Anomalies", "Rule Management"])
     
     with tab1:
         st.header("Probabilistic Spelling Harmonization Rules")
@@ -198,3 +200,34 @@ if st.session_state.db:
                 
                 # Stream corrections to local headers with consensus protection logs
                 execute_tasks_with_checkpoint(fix_tasks, "checkpoint_neighborhood_anomalies.txt")
+
+    with tab3:
+        st.header("Rule Management & Advanced Analysis")
+        if st.button("Generate Rule Suggestions from Collection"):
+            if st.session_state.db:
+                with st.spinner("Analyzing collection for rule suggestions..."):
+                    st.session_state.suggested_rules = analyze_and_suggest_tag_rules(st.session_state.db)
+                st.success("Rule suggestions generated!")
+            else:
+                st.warning("Please analyze the library first to generate rule suggestions.")
+        
+        if st.session_state.suggested_rules:
+            st.subheader("Proposed Rules for Fields")
+            for field, rules in st.session_state.suggested_rules["proposed_rules"].items():
+                if rules:
+                    st.markdown(f"**{field.capitalize()} Rules:**")
+                    for rule in rules:
+                        st.json(rule)
+            
+            st.subheader("Genre Suggestions")
+            st.write(st.session_state.suggested_rules["genre_suggestion"])
+            
+            st.subheader("Folder Album Suggestions")
+            st.json(st.session_state.suggested_rules["folder_album_suggestion"])
+
+            st.download_button(
+                label="Export Suggested Rules to CSV",
+                data=export_suggested_rules_to_csv(st.session_state.suggested_rules["clusters"], return_as_string=True),
+                file_name="suggested_rules.csv",
+                mime="text/csv",
+            )
