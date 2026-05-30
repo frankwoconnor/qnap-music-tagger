@@ -1,0 +1,136 @@
+---
+# Tag field definitions and their format-specific mappings
+# Supports ID3v2, Vorbis Comments, and MP4 atoms
+
+supported_formats:
+  - mp3      # ID3v2
+  - flac     # Vorbis Comments
+  - ogg      # Vorbis Comments
+  - m4a      # MP4 Atoms
+  - mp4      # MP4 Atoms
+  - wav      # ID3v2 (embedded)
+
+tag_fields:
+  artist:
+    description: "Track artist/performer"
+    id3_frame: "TPE1"
+    vorbis_comment: "ARTIST"
+    mp4_atom: "©ART"
+    priority: 10
+    
+  album_artist:
+    description: "Album artist (compilation albums)"
+    id3_frame: "TPE2"
+    vorbis_comment: "ALBUMARTIST"
+    mp4_atom: "aART"
+    priority: 9
+    
+  album:
+    description: "Album/collection title"
+    id3_frame: "TALB"
+    vorbis_comment: "ALBUM"
+    mp4_atom: "©alb"
+    priority: 8
+    
+  performer:
+    description: "Additional performers"
+    id3_frame: "TOPE"
+    vorbis_comment: "PERFORMER"
+    mp4_atom: "©prf"
+    priority: 7
+    
+  composer:
+    description: "Composer/songwriter"
+    id3_frame: "TCOM"
+    vorbis_comment: "COMPOSER"
+    mp4_atom: "©wrt"
+    priority: 6
+    
+  genre:
+    description: "Musical genre/style"
+    id3_frame: "TCON"
+    vorbis_comment: "GENRE"
+    mp4_atom: "©gen"
+    priority: 5
+    
+  title:
+    description: "Track/song title"
+    id3_frame: "TIT2"
+    vorbis_comment: "TITLE"
+    mp4_atom: "©nam"
+    priority: 4
+    
+  date:
+    description: "Release date (YYYY or YYYY-MM-DD)"
+    id3_frame: "TDRC"
+    vorbis_comment: "DATE"
+    mp4_atom: "©day"
+    priority: 3
+
+# Metadata sources configuration
+metadata_sources:
+  musicbrainz:
+    enabled: true
+    priority: 1  # Higher = tried first
+    timeout: 10
+    rate_limit: 100  # requests per minute
+    
+  discogs:
+    enabled: true
+    priority: 2
+    timeout: 10
+    rate_limit: 60
+    requires_token: false
+    
+  lastfm:
+    enabled: false  # Set to true if API key available
+    priority: 3
+    timeout: 10
+    
+  acoustid:
+    enabled: false  # Requires audio fingerprinting
+    priority: 4
+    timeout: 15
+
+# Fuzzy matching thresholds
+fuzzy_matching:
+  strategies:
+    aggressive:
+      threshold: 75
+      scorer: "token_sort_ratio"  # Order-insensitive matching
+      use_case_sensitivity: false
+      description: "Catches more variations, higher false positives"
+      
+    balanced:
+      threshold: 85
+      scorer: "token_sort_ratio"
+      use_case_sensitivity: false
+      description: "Default strategy, good balance"
+      
+    conservative:
+      threshold: 92
+      scorer: "token_sort_ratio"
+      use_case_sensitivity: true
+      description: "Only exact near-matches"
+      
+    exact:
+      threshold: 100
+      scorer: "ratio"
+      use_case_sensitivity: true
+      description: "Perfect match only"
+
+# Confidence thresholds for accepting external source data
+confidence_thresholds:
+  musicbrainz: 0.95
+  discogs: 0.90
+  lastfm: 0.85
+  acoustid: 0.98
+
+# Neighborhood consensus settings
+neighborhood_consensus:
+  min_folder_tracks: 3
+  stability_threshold: 0.75  # 75% agreement required
+  voteable_fields:
+    - genre
+    - album_artist
+    - composer
