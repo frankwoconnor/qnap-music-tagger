@@ -14,9 +14,10 @@ from collection_analysis import (
     load_rules_from_csv,
     rules_to_yaml,
     generate_minimal_genre_mapping_suggestions,
-    save_genre_rules_to_yaml, # New import
-    load_genre_rules_from_yaml # New import
+    save_genre_rules_to_yaml,
+    load_genre_rules_from_yaml,
 )
+from genre_analysis import build_report, compute_impact, clusters_to_rules
 
 # --- PROFILING ENGINE LOGIC ---
 
@@ -161,7 +162,8 @@ if "db" not in st.session_state:
     st.session_state.suggested_rules = None
     st.session_state.minimal_genre_mapping = {}
     st.session_state.genre_standardization_rules = []
-    st.session_state.predefined_minimal_genres = [] # New state variable for user-defined minimal genres
+    st.session_state.predefined_minimal_genres = []
+    st.session_state.genre_report = None
 
     # Load genre rules and mapping on startup
     loaded_rules = load_genre_rules_from_yaml()
@@ -181,7 +183,12 @@ if st.button("Analyze Library & Extract Patterns", type="primary"):
 
 # Render operational work panels once library state matrices are compiled
 if st.session_state.db:
-    tab1, tab2, tab3 = st.tabs(["Fuzzy Spelling Consolidation", "Folder Consensus Anomalies", "Rule Management"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Fuzzy Spelling Consolidation",
+        "Folder Consensus Anomalies",
+        "Rule Management",
+        "Genre Analysis & Rationalization",
+    ])
     
     with tab1:
         st.header("Probabilistic Spelling Harmonization Rules")
@@ -340,3 +347,85 @@ if st.session_state.db:
                 file_name="suggested_rules.csv",
                 mime="text/csv",
             )
+
+    with tab4:
+        st.header("Genre Analysis & Rationalization")
+
+        if st.button("Run Genre Analysis", type="primary"):
+            report = build_report(st.session_state.db)
+            st.session_state.genre_report = report
+
+        if st.session_state.genre_report:
+            report = st.session_state.genre_report
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Tracks", report.total_tracks)
+            col2.metric("Unique Genres Found", report.unique_before)
+            col3.metric("After Rationalization", report.unique_after)
+            col4.metric("Tracks to Remap", report.tracks_affected)
+
+            st.subheader("Current Genre Distribution")
+            dist_chart = report.distribution.set_index("genre")
+            st.bar_chart(dist_chart["count"])
+            with st.expander("View full table"):
+                st.dataframe(report.distribution, use_container_width=True)
+
+            if report.clusters:
+                st.subheader("Proposed Genre Clusters")
+                st.markdown("Toggle **Accept** to merge a cluster. Edit **Master Genre** to rename the target.")
+
+                cluster_data = []
+                for c in report.clusters:
+                    cluster_data.append({
+                        "Accept": c.accepted,
+                        "Master Genre": c.master,
+                        "Variants": ", ".join(c.variants),
+                        "Variant Count": len(c.variants),
+                        "Total Tracks": c.total_count,
+                    })
+                cluster_df = pd.DataFrame(cluster_data)
+
+                edited = st.data_editor(
+                    cluster_df,
+                    column_config={
+                        "Accept": st.column_config.CheckboxColumn("Accept", help="Merge variants into master"),
+                        "Master Genre": st.column_config.TextColumn("Master Genre", help="Target genre name", required=True),
+                        "Variants": st.column_config.TextColumn("Variants", disabled=True),
+                        "Variant Count": st.column_config.NumberColumn("Variants", disabled=True),
+                        "Total Tracks": st.column_config.NumberColumn("Tracks", disabled=True),
+                    },
+                    num_rows="fixed",
+                    use_container_width=True,
+                    key="genre_clusters_editor",
+                )
+
+                for i, row in edited.iterrows():
+                    if i < len(report.clusters):
+                        report.clusters[i].accepted = row["Accept"]
+                        report.clusters[i].master = str(row["Master Genre"]).strip()
+
+            if report.unclustered:
+                with st.expander(f"Unclustered Genres ({len(report.unclustered)})"):
+                    st.write(", ".join(report.unclustered))
+
+            st.subheader("Impact Preview")
+            impact_df = compute_impact(report.distribution, report.clusters, report.unclustered)
+            impact_chart = impact_df.set_index("genre")
+            st.bar_chart(impact_chart[["before", "after"]])
+            with st.expander("View impact table"):
+                st.dataframe(impact_df, use_container_width=True)
+
+            rules = clusters_to_rules(report.clusters)
+            if rules:
+                if st.button("Save Genre Rationalization Rules to YAML"):
+                    existing = load_genre_rules_from_yaml()
+                    save_genre_rules_to_yaml(
+                        rules,
+                        existing["minimal_genre_mapping"],
+                        existing["minimal_genres_list"],
+                    )
+                    st.success(f"Saved {len(rules)} genre rationalization rules!")
+            else:
+                st.info("No accepted clusters with variants to save.")
+        else:
+            st.info("Analyze your library first, then click **Run Genre Analysis**.")
