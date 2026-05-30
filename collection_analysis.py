@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from rapidfuzz import fuzz, process
 from typing import List, Dict, Any, Optional
 import yaml # New import
-from metadata_sources import MusicBrainzSource
+# from metadata_sources import MusicBrainzSource # Moved import inside function
 
 def analyze_and_suggest_tag_rules(
     tracks: List[Dict[str, Any]],
