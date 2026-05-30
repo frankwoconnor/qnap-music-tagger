@@ -166,20 +166,21 @@ class TagRuleEngine:
                         field_value = new_value
                         break
             
-            # Apply minimal genre mapping after all other genre rules
-            if field_name == "genre" and field_value: # Only apply if it's the genre field and has a value
-                mapped_genre = self.genre_mapping_rules.get(field_value)
-                if mapped_genre and mapped_genre != field_value:
+            # Apply minimal genre mapping
+            genre_val = track.get("genre", "").strip()
+            if genre_val:
+                mapped_genre = self.genre_mapping_rules.get(genre_val)
+                if mapped_genre and mapped_genre != genre_val:
                     corrections.append({
                         "path": track.get("path", ""),
-                        "field": field_name,
-                        "original": field_value,
+                        "field": "genre",
+                        "original": genre_val,
                         "corrected": mapped_genre,
                         "reason": "Minimal genre mapping",
                         "rule": "minimal_genre_map",
                         "confidence": 1.0
                     })
-                    track[field_name] = mapped_genre
+                    track["genre"] = mapped_genre
         
         return metadata, corrections
     

@@ -106,7 +106,7 @@ def execute_tasks_with_checkpoint(all_tasks, log_filename):
     Streams modifications directly to disk using un-ordered iterators.
     Maintains checkpoint states to guarantee immediate disaster recovery.
     """
-    checkpoint_path = os.path.join("/app", log_filename)
+    checkpoint_path = os.path.join(os.path.dirname(__file__), log_filename)
     processed_paths = set()
     
     # Load past tracking metrics if restarting from an unexpected interruption

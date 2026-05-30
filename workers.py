@@ -12,7 +12,10 @@ from mutagen.trueaudio import TrueAudio
 from mutagen.monkeysaudio import MonkeysAudio
 from mutagen.musepack import Musepack
 from mutagen.optimfrog import OptimFROG
-from mutagen.speex import Speex
+try:
+    from mutagen.speex import Speex
+except ImportError:
+    Speex = None
 from mutagen.aac import AAC
 from mutagen.apev2 import APEv2File
 
