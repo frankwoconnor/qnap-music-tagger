@@ -76,6 +76,8 @@ class TagRuleEngine:
         self.rules: Dict[str, List[TagRule]] = {}
         self.whitelist: Dict[str, List[str]] = {}
         self.blacklist: Dict[str, List[str]] = {}
+        self.genre_mapping_rules: Dict[str, str] = {} # New instance variable
+        self.minimal_genres_list: List[str] = [] # New instance variable
         self._load_rules()
     
     def _load_rules(self) -> None:
@@ -110,6 +112,11 @@ class TagRuleEngine:
                 self.whitelist = config['whitelist']
             if 'blacklist' in config:
                 self.blacklist = config['blacklist']
+            
+            if 'genre_mapping' in config:
+                self.minimal_genres_list = config['genre_mapping'].get('minimal_genres', [])
+                self.genre_mapping_rules = config['genre_mapping'].get('standardized_to_minimal', {})
+                logger.info(f"Loaded {len(self.genre_mapping_rules)} genre mapping rules.")
             
             logger.info(f"Loaded {sum(len(r) for r in self.rules.values())} rules")
             
@@ -158,6 +165,21 @@ class TagRuleEngine:
                         track[field_name] = new_value
                         field_value = new_value
                         break
+            
+            # Apply minimal genre mapping after all other genre rules
+            if field_name == "genre" and field_value: # Only apply if it's the genre field and has a value
+                mapped_genre = self.genre_mapping_rules.get(field_value)
+                if mapped_genre and mapped_genre != field_value:
+                    corrections.append({
+                        "path": track.get("path", ""),
+                        "field": field_name,
+                        "original": field_value,
+                        "corrected": mapped_genre,
+                        "reason": "Minimal genre mapping",
+                        "rule": "minimal_genre_map",
+                        "confidence": 1.0
+                    })
+                    track[field_name] = mapped_genre
         
         return metadata, corrections
     

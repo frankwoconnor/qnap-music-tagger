@@ -4,10 +4,19 @@ import json
 from collections import Counter
 from multiprocessing import Pool, cpu_count
 from rapidfuzz import fuzz, process
+import pandas as pd # New import for data_editor
 
 # Import picklable parallel worker functions from isolated module context
 from workers import scan_single_file, apply_tag_fix
-from collection_analysis import analyze_and_suggest_tag_rules, export_suggested_rules_to_csv, load_rules_from_csv, rules_to_yaml
+from collection_analysis import (
+    analyze_and_suggest_tag_rules,
+    export_suggested_rules_to_csv,
+    load_rules_from_csv,
+    rules_to_yaml,
+    generate_minimal_genre_mapping_suggestions,
+    save_genre_rules_to_yaml, # New import
+    load_genre_rules_from_yaml # New import
+)
 
 # --- PROFILING ENGINE LOGIC ---
 
@@ -16,7 +25,7 @@ def run_library_profiling(music_dir):
     Scans media directory structure using all CPU cores. Evaluates trends,
     clusters spelling variations, and uncovers localized metadata anomalies.
     """
-    supported_exts = ('.mp3', '.m4a', '.mp4', '.flac', '.ogg', '.wav', 
+    supported_exts = ('.mp3', '.m4a', '.mp4', '.flac', '.ogg', '.wav',
                       '.MP3', '.M4A', '.MP4', '.FLAC', '.OGG', '.WAV')
     all_filepaths = []
     
@@ -37,7 +46,7 @@ def run_library_profiling(music_dir):
     metadata = [m for m in raw_metadata if m is not None]
     
     # Step 1: Lexical Frequency Dominance Clustering
-    unique_artists = sorted(list(set(m["artist"] for m in metadata if m["artist"])))
+    unique_artists = sorted(list(set(m["artist"]) for m in metadata if m["artist"]))) # Corrected line
     artist_counts = Counter(m["artist"] for m in metadata if m["artist"])
     
     fuzzy_clusters = {}
@@ -150,6 +159,15 @@ if "db" not in st.session_state:
     st.session_state.clusters = {}
     st.session_state.anomalies = []
     st.session_state.suggested_rules = None
+    st.session_state.minimal_genre_mapping = {}
+    st.session_state.genre_standardization_rules = []
+    st.session_state.predefined_minimal_genres = [] # New state variable for user-defined minimal genres
+
+    # Load genre rules and mapping on startup
+    loaded_rules = load_genre_rules_from_yaml()
+    st.session_state.genre_standardization_rules = loaded_rules["genre_standardization_rules"]
+    st.session_state.minimal_genre_mapping = loaded_rules["minimal_genre_mapping"]
+    st.session_state.predefined_minimal_genres = loaded_rules["minimal_genres_list"]
 
 target_directory = st.text_input("QNAP Media Directory Path Target", "/music")
 
@@ -203,27 +221,118 @@ if st.session_state.db:
 
     with tab3:
         st.header("Rule Management & Advanced Analysis")
+        
+        # Button to generate rule suggestions
         if st.button("Generate Rule Suggestions from Collection"):
             if st.session_state.db:
                 with st.spinner("Analyzing collection for rule suggestions..."):
-                    st.session_state.suggested_rules = analyze_and_suggest_tag_rules(st.session_state.db)
+                    analysis_results = analyze_and_suggest_tag_rules(st.session_state.db)
+                    st.session_state.suggested_rules = analysis_results
+                    st.session_state.genre_standardization_rules = analysis_results["proposed_rules"].get("genre", [])
+                    
+                    # Generate minimal genre mapping suggestions
+                    standardized_genres = analysis_results.get("standardized_genres_list", [])
+                    st.session_state.minimal_genre_mapping = generate_minimal_genre_mapping_suggestions(
+                        st.session_state.db, # Pass tracks to the function
+                        standardized_genres,
+                        st.session_state.predefined_minimal_genres # Pass current minimal genres
+                    )
                 st.success("Rule suggestions generated!")
             else:
                 st.warning("Please analyze the library first to generate rule suggestions.")
         
         if st.session_state.suggested_rules:
-            st.subheader("Proposed Rules for Fields")
+            st.subheader("Proposed Rules for Other Fields")
             for field, rules in st.session_state.suggested_rules["proposed_rules"].items():
-                if rules:
+                if rules and field != "genre": # Exclude genre, as it will have its own section
                     st.markdown(f"**{field.capitalize()} Rules:**")
                     for rule in rules:
                         st.json(rule)
             
-            st.subheader("Genre Suggestions")
-            st.write(st.session_state.suggested_rules["genre_suggestion"])
+            st.subheader("Genre Standardization Rules")
+            if st.session_state.genre_standardization_rules:
+                # Convert rules to a DataFrame for st.data_editor
+                genre_rules_df = pd.DataFrame([
+                    {"Original Pattern": rule["condition"]["pattern"], "Target Genre": rule["value"], "Enabled": rule["enabled"]}
+                    for rule in st.session_state.genre_standardization_rules
+                ])
+                edited_genre_rules_df = st.data_editor(
+                    genre_rules_df, 
+                    num_rows="dynamic", 
+                    use_container_width=True,
+                    column_config={
+                        "Original Pattern": st.column_config.TextColumn("Original Pattern", help="Regex pattern for original genre names"),
+                        "Target Genre": st.column_config.TextColumn("Target Genre", help="Standardized genre name"),
+                        "Enabled": st.column_config.CheckboxColumn("Enabled", help="Enable or disable this rule")
+                    }
+                )
+                # Update session state with edited rules
+                st.session_state.genre_standardization_rules = [
+                    {
+                        "name": f"Normalize {row['Target Genre']}",
+                        "enabled": row["Enabled"],
+                        "condition": {"field": "genre", "pattern": row["Original Pattern"], "case_insensitive": True},
+                        "value": row["Target Genre"],
+                        "confidence": 0.9
+                    } for index, row in edited_genre_rules_df.iterrows()
+                ]
+            else:
+                st.info("No genre standardization rules suggested.")
+
+            st.subheader("Minimal Genre Set Mapping")
+            if st.session_state.minimal_genre_mapping:
+                # Allow user to define minimal genres
+                default_minimal_genres_options = ["Rock", "Pop", "Electronic", "Classical", "Jazz", "Soundtrack",
+                                          "Hip Hop", "Folk", "World", "Blues", "Country", "Metal", "R&B", "Other"]
+                
+                # Ensure all current mapped values are in the default options for multiselect
+                current_mapped_values_from_mapping = list(set(st.session_state.minimal_genre_mapping.values()))
+                all_minimal_options = sorted(list(set(default_minimal_genres_options + current_mapped_values_from_mapping + st.session_state.predefined_minimal_genres)))
+
+                st.session_state.predefined_minimal_genres = st.multiselect(
+                    "Define your target minimal genres (5-10 recommended):",
+                    options=all_minimal_options,
+                    default=st.session_state.predefined_minimal_genres,
+                    key="minimal_genre_selector" # Added a key to prevent re-rendering issues
+                )
+                
+                # Create a DataFrame for editing the mapping
+                mapping_data = []
+                for std_genre, min_genre in st.session_state.minimal_genre_mapping.items():
+                    mapping_data.append({"Standardized Genre": std_genre, "Mapped To": min_genre})
+                
+                mapping_df = pd.DataFrame(mapping_data)
+                
+                # Use st.data_editor with a selectbox for "Mapped To" column
+                edited_mapping_df = st.data_editor(
+                    mapping_df,
+                    column_config={
+                        "Mapped To": st.column_config.SelectboxColumn(
+                            "Mapped To",
+                            options=st.session_state.predefined_minimal_genres, # Use user-defined minimal genres
+                            required=True,
+                        )
+                    },
+                    num_rows="fixed",
+                    use_container_width=True,
+                    key="minimal_genre_mapper" # Added a key
+                )
+                # Update session state with edited mapping
+                st.session_state.minimal_genre_mapping = {
+                    row["Standardized Genre"]: row["Mapped To"]
+                    for index, row in edited_mapping_df.iterrows()
+                }
+            else:
+                st.info("No minimal genre mapping suggestions.")
             
-            st.subheader("Folder Album Suggestions")
-            st.json(st.session_state.suggested_rules["folder_album_suggestion"])
+            # Save Genre Rules Button
+            if st.button("Save Genre Rules to tag_rules.yaml"):
+                save_genre_rules_to_yaml(
+                    st.session_state.genre_standardization_rules,
+                    st.session_state.minimal_genre_mapping,
+                    st.session_state.predefined_minimal_genres
+                )
+                st.success("Genre rules and mapping saved!")
 
             st.download_button(
                 label="Export Suggested Rules to CSV",

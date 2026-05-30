@@ -10,6 +10,8 @@ import re
 from collections import Counter, defaultdict
 from rapidfuzz import fuzz, process
 from typing import List, Dict, Any, Optional
+import yaml # New import
+from metadata_sources import MusicBrainzSource
 
 def analyze_and_suggest_tag_rules(
     tracks: List[Dict[str, Any]],
@@ -80,11 +82,25 @@ def analyze_and_suggest_tag_rules(
         if len(counter) >= min_cluster_size
     }
 
+    standardized_genres_list = sorted(list(clusters['genre'].keys())) if 'genre' in clusters else []
+    # Also include any genres that didn't form a cluster but are unique
+    all_unique_genres = sorted(list(set(t.get("genre", "").strip() for t in tracks if t.get("genre", "").strip())))
+    for g in all_unique_genres:
+        is_clustered = False
+        for master, variants in clusters.get('genre', {}).items():
+            if g == master or g in variants:
+                is_clustered = True
+                break
+        if not is_clustered and g not in standardized_genres_list:
+            standardized_genres_list.append(g)
+    standardized_genres_list = sorted(list(set(standardized_genres_list))) # Ensure uniqueness and sort
+
     return {
         "clusters": clusters,
         "proposed_rules": rule_suggestions,
         "genre_suggestion": top_genres,
         "folder_album_suggestion": folder_album_suggestion,
+        "standardized_genres_list": standardized_genres_list,
     }
 
 def export_suggested_rules_to_csv(clusters: dict, file_path: Optional[str] = "suggested_rules.csv", return_as_string: bool = False):
@@ -141,10 +157,69 @@ def load_rules_from_csv(
     return rules
 
 def rules_to_yaml(rules, yaml_path: str = "rules_to_import.yaml"):
-    import yaml
     with open(yaml_path, 'w', encoding='utf-8') as f:
         yaml.dump({"rules": rules}, f, allow_unicode=True)
     print(f"Rules exported to {yaml_path}")
+
+def save_genre_rules_to_yaml(
+    genre_standardization_rules: List[Dict[str, Any]],
+    minimal_genre_mapping: Dict[str, str],
+    minimal_genres_list: List[str], # New parameter for the list of minimal genres
+    yaml_path: str = "tag_rules.yaml"
+):
+    """
+    Saves genre standardization rules and minimal genre mapping to the tag_rules.yaml file.
+    """
+    try:
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        config = {}
+    
+    if 'rules' not in config:
+        config['rules'] = {}
+    config['rules']['genre'] = genre_standardization_rules
+    
+    config['genre_mapping'] = {
+        'minimal_genres': minimal_genres_list,
+        'standardized_to_minimal': minimal_genre_mapping
+    }
+    
+    with open(yaml_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config, f, allow_unicode=True, sort_keys=False)
+    print(f"Genre rules and mapping saved to {yaml_path}")
+
+def load_genre_rules_from_yaml(yaml_path: str = "tag_rules.yaml") -> Dict[str, Any]:
+    """
+    Loads genre standardization rules and minimal genre mapping from the tag_rules.yaml file.
+    """
+    try:
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        
+        genre_standardization_rules = config.get('rules', {}).get('genre', [])
+        minimal_genre_mapping = config.get('genre_mapping', {}).get('standardized_to_minimal', {})
+        minimal_genres_list = config.get('genre_mapping', {}).get('minimal_genres', [])
+
+        return {
+            "genre_standardization_rules": genre_standardization_rules,
+            "minimal_genre_mapping": minimal_genre_mapping,
+            "minimal_genres_list": minimal_genres_list
+        }
+    except FileNotFoundError:
+        print(f"Warning: {yaml_path} not found. Returning empty genre rules.")
+        return {
+            "genre_standardization_rules": [],
+            "minimal_genre_mapping": {},
+            "minimal_genres_list": []
+        }
+    except yaml.YAMLError as e:
+        print(f"Error parsing {yaml_path}: {e}")
+        return {
+            "genre_standardization_rules": [],
+            "minimal_genre_mapping": {},
+            "minimal_genres_list": []
+        }
 
 """
 USAGE INSTRUCTIONS:

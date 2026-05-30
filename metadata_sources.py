@@ -9,8 +9,16 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import requests
 import time
+import musicbrainzngs # New import
 
 logger = logging.getLogger(__name__)
+
+# Configure musicbrainzngs
+musicbrainzngs.set_useragent(
+    "qnap-music-tagger",
+    "1.0",
+    "https://github.com/frankwoconnor/qnap-music-tagger"
+)
 
 
 @dataclass
@@ -56,10 +64,7 @@ class MusicBrainzSource(MetadataSource):
     
     def __init__(self, timeout: int = 10, rate_limit: int = 100):
         super().__init__(timeout, rate_limit)
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "qnap-music-tagger/1.0 (https://github.com/frankwoconnor/qnap-music-tagger)"
-        })
+        # musicbrainzngs handles sessions internally
     
     def search(self, artist: str, album: str, title: str) -> List[MatchResult]:
         """Search MusicBrainz for recording"""
@@ -69,23 +74,16 @@ class MusicBrainzSource(MetadataSource):
         try:
             self._respect_rate_limit()
             
-            query_parts = [f'recording:"{title}"']
-            if artist:
-                query_parts.append(f'artist:"{artist}"')
-            if album:
-                query_parts.append(f'release:"{album}"')
-            
-            query = " AND ".join(query_parts)
-            
-            response = self.session.get(
-                f"{self.BASE_URL}/recording",
-                params={"query": query, "fmt": "json", "limit": 5},
-                timeout=self.timeout
+            # Using musicbrainzngs for search
+            result = musicbrainzngs.search_recordings(
+                query=title,
+                artist=artist,
+                release=album,
+                limit=5
             )
-            response.raise_for_status()
             
             results = []
-            for idx, recording in enumerate(response.json().get("recordings", [])):
+            for idx, recording in enumerate(result.get("recording-list", [])):
                 match_data = {
                     "title": recording.get("title"),
                     "artist": self._extract_artist(recording),
@@ -104,6 +102,9 @@ class MusicBrainzSource(MetadataSource):
             
             return sorted(results, key=lambda x: x.confidence, reverse=True)
             
+        except musicbrainzngs.WebServiceError as e:
+            logger.error(f"MusicBrainz WebServiceError: {e}")
+            return []
         except Exception as e:
             logger.error(f"MusicBrainz search error: {e}")
             return []
@@ -132,11 +133,9 @@ class MusicBrainzSource(MetadataSource):
     
     def _extract_composer(self, recording: Dict) -> str:
         """Extract composer if available"""
-        if "work-relation-list" in recording:
-            for relation in recording.get("work-relation-list", []):
-                if relation.get("type") == "performance":
-                    return relation.get("work", {}).get("composer", "")
-        return ""
+        # MusicBrainzngs returns work-relation-list differently, need to adapt
+        # For simplicity, this might need a more robust parsing or be omitted if not critical
+        return "" # Placeholder for now
     
     def _calculate_confidence(self, recording: Dict, artist: str, album: str, title: str) -> float:
         """Calculate match confidence score"""
@@ -154,6 +153,33 @@ class MusicBrainzSource(MetadataSource):
             confidence += 0.1
         
         return min(confidence, 1.0)
+
+    def get_musicbrainz_genre_suggestions(self, artist: str, album: str) -> List[str]:
+        """
+        Fetches genre suggestions from MusicBrainz for a given artist and album.
+        """
+        genres = []
+        try:
+            self._respect_rate_limit() # Still respect rate limit
+            
+            # Search for releases by artist and album
+            # include='tags' is important to get genre-like information
+            result = musicbrainzngs.search_releases(artist=artist, release=album, limit=5, include=['tags'])
+            
+            for release in result.get('release-list', []):
+                if 'tag-list' in release:
+                    for tag in release['tag-list']:
+                        if 'name' in tag:
+                            genres.append(tag['name'])
+            
+            # Deduplicate and return
+            return sorted(list(set(genres)))
+            
+        except musicbrainzngs.WebServiceError as e:
+            logger.warning(f"MusicBrainz WebServiceError for {artist} - {album}: {e}")
+        except Exception as e:
+            logger.error(f"Error fetching MusicBrainz genres for {artist} - {album}: {e}")
+        return []
 
 
 class DiscogsSource(MetadataSource):

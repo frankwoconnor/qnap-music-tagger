@@ -2,3 +2,4 @@ streamlit==1.32.0
 pytaglib==2.1.0
 rapidfuzz==3.6.1
 pyyaml==6.0.1
+musicbrainzngs==0.7.1
