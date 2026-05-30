@@ -365,10 +365,13 @@ if st.session_state.db:
             col4.metric("Tracks to Remap", report.tracks_affected)
 
             st.subheader("Current Genre Distribution")
-            dist_chart = report.distribution.set_index("genre")
-            st.bar_chart(dist_chart["count"])
-            with st.expander("View full table"):
-                st.dataframe(report.distribution, use_container_width=True)
+            if report.distribution.empty:
+                st.info("No genre tags found in the collection. Add genre tags to your files for analysis.")
+            else:
+                dist_chart = report.distribution.set_index("genre")
+                st.bar_chart(dist_chart["count"])
+                with st.expander("View full table"):
+                    st.dataframe(report.distribution, use_container_width=True)
 
             if report.clusters:
                 st.subheader("Proposed Genre Clusters")
@@ -408,12 +411,13 @@ if st.session_state.db:
                 with st.expander(f"Unclustered Genres ({len(report.unclustered)})"):
                     st.write(", ".join(report.unclustered))
 
-            st.subheader("Impact Preview")
-            impact_df = compute_impact(report.distribution, report.clusters, report.unclustered)
-            impact_chart = impact_df.set_index("genre")
-            st.bar_chart(impact_chart[["before", "after"]])
-            with st.expander("View impact table"):
-                st.dataframe(impact_df, use_container_width=True)
+            if not report.distribution.empty:
+                st.subheader("Impact Preview")
+                impact_df = compute_impact(report.distribution, report.clusters, report.unclustered)
+                impact_chart = impact_df.set_index("genre")
+                st.bar_chart(impact_chart[["before", "after"]])
+                with st.expander("View impact table"):
+                    st.dataframe(impact_df, use_container_width=True)
 
             rules = clusters_to_rules(report.clusters)
             if rules:
